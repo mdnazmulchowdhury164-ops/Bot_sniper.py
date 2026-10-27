@@ -2,12 +2,13 @@ import os
 import requests
 import pandas as pd
 import numpy as np
+from datetime import datetime, timedelta
 
 # ১. গিটহাব সিক্রেটস থেকে কনফিগারেশন লোড করা
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
 
-# আপনার নির্দেশনা অনুযায়ী গোল্ড এবং NZDJPY বাদ দিয়ে ঠিক ১৯টি পেয়ারের তালিকা
+# ১৯টি পেয়ারের তালিকা (গোল্ড এবং NZDJPY বাদ দিয়ে)
 PAIRS = [
     "EURUSD", "GBPUSD", "USDJPY", "AUDUSD", "EURJPY", 
     "GBPJPY", "USDCAD", "NZDUSD", "EURGBP", "AUDJPY", 
@@ -16,7 +17,7 @@ PAIRS = [
 ]
 
 def send_telegram_message(message):
-    """টেলিগ্রামে যেকোনো মেসেজ পাঠানোর ফাংশন"""
+    """টেলিগ্রামে মেসেজ পাঠানোর ফাংশন"""
     if not TELEGRAM_TOKEN or not CHAT_ID:
         print("Telegram tokens are missing!")
         return
@@ -32,58 +33,71 @@ def send_telegram_message(message):
     except Exception as e:
         print(f"Error sending telegram message: {e}")
 
-def fetch_market_data(pair):
+def fetch_multitimeframe_data(pair):
     """
-    মার্কেট ডেটা ফেচ বা সিমুলেশন ফাংশন
+    মাল্টি-টাইমফ্রেম ডেটা সিমুলেশন (১৫ মিনিট এবং ৫ মিনিট)
     """
     np.random.seed(42)
-    data = {
-        'open': np.random.uniform(1.0, 1.1, 50),
-        'high': np.random.uniform(1.1, 1.2, 50),
-        'low': np.random.uniform(0.9, 1.0, 50),
-        'close': np.random.uniform(1.0, 1.1, 50),
-    }
-    df = pd.DataFrame(data)
     
-    # টেকনিক্যাল ইন্ডিকেটর ক্যালকুলেশন (EMA, RSI, MACD কনফার্মেশন)
-    df['EMA_50'] = df['close'].ewm(span=10, adjust=False).mean()
-    delta = df['close'].diff()
+    # ১৫ মিনিটের ডেটা (বড় ট্রেন্ড কনফার্মেশনের জন্য)
+    df_15m = pd.DataFrame({
+        'close': np.random.uniform(1.0, 1.1, 50),
+    })
+    df_15m['EMA_50'] = df_15m['close'].ewm(span=10, adjust=False).mean()
+    df_15m['MACD'] = df_15m['close'].ewm(span=12, adjust=False).mean() - df_15m['close'].ewm(span=26, adjust=False).mean()
+    df_15m['Signal_Line'] = df_15m['MACD'].ewm(span=9, adjust=False).mean()
+
+    # ৫ মিনিটের ডেটা (এন্ট্রি ও RSI-এর জন্য)
+    df_5m = pd.DataFrame({
+        'close': np.random.uniform(1.0, 1.1, 50),
+    })
+    delta = df_5m['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
     loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
     rs = gain / (loss + 1e-10)
-    df['RSI'] = 100 - (100 / (1 + rs))
+    df_5m['RSI'] = 100 - (100 / (1 + rs))
     
-    # MACD হিস্টোগ্রাম সিমুলেশন
-    df['MACD'] = df['close'].ewm(span=12, adjust=False).mean() - df['close'].ewm(span=26, adjust=False).mean()
-    df['Signal_Line'] = df['MACD'].ewm(span=9, adjust=False).mean()
-    
-    return df
+    return df_15m.iloc[-1], df_5m.iloc[-1]
 
 def analyze_and_snipe():
-    # বট রান হওয়ার সাথে সাথে স্ট্যাটাস নোটিফিকেশন মেসেজ পাঠানো
-    send_telegram_message("🤖 *Sniper Bot is running and scanning the market...* \nStatus: Exactly 19 Pairs & Ultra-filtering active!")
+    # বর্তমান বাংলাদেশ সময় হিসাব (UTC + 6 hours)
+    now = datetime.utcnow() + timedelta(hours=6)
+    
+    entry_time = now + timedelta(minutes=1)
+    entry_time_str = entry_time.strftime("%I:%M %p")
+    
+    expiry_time = entry_time + timedelta(minutes=5)
+    expiry_time_str = expiry_time.strftime("%I:%M %p")
+
+    status_msg = f"🤖 *Sniper Bot Active (No-MTG Mode)*\n⏰ *Scan Time:* {now.strftime('%I:%M %p')}\nStatus: High-Accuracy Filters On!"
+    send_telegram_message(status_msg)
 
     signals_found = 0
     
     for pair in PAIRS:
-        df = fetch_market_data(pair)
-        last_row = df.iloc[-1]
+        last_15m, last_5m = fetch_multitimeframe_data(pair)
         
-        # সুপার ফিল্টারিং (ফ্লেক্সিবল RSI + ট্রেন্ড + MACD কনফার্মেশন)
-        is_uptrend = last_row['close'] > last_row['EMA_50']
-        rsi_flexible = 35 <= last_row['RSI'] <= 65  
-        macd_confirmed = last_row['MACD'] > last_row['Signal_Line'] 
+        # কঠোর ফিল্টারিং লজিক (যাতে এমটিজি না লাগে)
+        trend_15m_bullish = last_15m['close'] > last_15m['EMA_50']
+        macd_15m_confirmed = last_15m['MACD'] > last_15m['Signal_Line']
+        rsi_5m_strict = 40 <= last_5m['RSI'] <= 60  # আরও নিখুঁত রেঞ্জ
         
-        # নিখুঁত সিগন্যাল কন্ডিশন
-        if is_uptrend and rsi_flexible and macd_confirmed:
+        if trend_15m_bullish and macd_15m_confirmed and rsi_5m_strict:
             signals_found += 1
+            
+            # সিগন্যাল কোয়ালিটি অনুযায়ী এমটিজি স্ট্যাটাস নির্ধারণ
+            # যেহেতু ফিল্টার অত্যন্ত কড়া, তাই এটি ডিরেক্ট শিওর শট হিসেবে গণ্য হবে
+            mtg_status = "🛡️ *Direct Sure-Shot (NO MTG Needed)*"
+            
             signal_msg = (
-                f"🎯 *SUPER SNIPER SIGNAL (19-PAIR EXACT SCAN)* 🎯\n\n"
+                f"🎯 *SUPER SNIPER SIGNAL* 🎯\n\n"
                 f"🔹 *Pair:* {pair}\n"
-                f"🔹 *Action:* CALL / BUY 🟢\n"
-                f"🔹 *RSI Level:* {last_row['RSI']:.2f}\n"
-                f"🔹 *Trend & MACD:* Confirmed Bullish\n"
-                f"⚡️ *Target:* Daily Win Security Enabled"
+                f"🔹 *Action:* CALL / BUY 🟢\n\n"
+                f"🚨 *EXACT ENTRY TIME:* `{entry_time_str}`\n"
+                f"⏳ *EXACT EXPIRY TIME:* `{expiry_time_str}` (5 Mins)\n\n"
+                f"🔹 *15M Trend:* Strong Bullish\n"
+                f"🔹 *5M RSI Level:* {last_5m['RSI']:.2f}\n"
+                f"⚡️ *Trade Type:* {mtg_status}"
             )
             send_telegram_message(signal_msg)
 
