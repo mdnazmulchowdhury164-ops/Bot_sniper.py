@@ -8,8 +8,8 @@ import yfinance as yf
 # ==========================================
 # ⚙️ TELEGRAM & SYMBOLS CONFIGURATION
 # ==========================================
-TELEGRAM_TOKEN = "8636180917:AAFB5ntb274YsxnBFUa5HKUgQqGdBSK2cXw"
-CHAT_ID = "6574248669"
+TELEGRAM_TOKEN = "8980085069:AAENlLOKnpEpAQjuXfzood8bR7ghZ4_7kIY"
+CHAT_ID = "6327673739"
 
 # Your Original 19 Currency Pairs (Quotex Available Pairs)
 SYMBOLS = [
@@ -358,7 +358,7 @@ def analyze_market(symbol):
 def main():
     global today_loss_counter, last_trade_date
     print(
-        "Quotex Ultimate Sniper Bot Started with Cleaned Indicators & Timing Sync..."
+        "Quotex Ultimate Sniper Bot Started with Updated Telegram Credentials..."
     )
 
     while True:
