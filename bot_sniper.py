@@ -1,10 +1,4 @@
-from datetime import datetime
-import time
-import pytz
-import requests
-import yfinance as yf
 
-# Telegram Configuration
 TELEGRAM_TOKEN = "8636180917:AAFB5ntb274YsxnBFUa5HKUgQqGdBSK2cXw"
 CHAT_ID = "6574248669"
 
