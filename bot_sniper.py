@@ -34,11 +34,6 @@ SYMBOLS = [
     "NZDJPY=X",
 ]
 
-# Risk Management Variables (Daily Stop-Loss Counter)
-DAILY_LOSS_LIMIT = 3
-today_loss_counter = 0
-last_trade_date = datetime.now().date()
-
 
 def send_telegram_msg(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
@@ -84,7 +79,6 @@ def check_forex_news():
                         time_diff = (
                             event_time - now_utc
                         ).total_seconds() / 60
-                        # নিউজ আসার ১৫ মিনিট আগে থেকে ১৫ মিনিট পরে পর্যন্ত ট্রেড বন্ধ রাখবে
                         if -15 <= time_diff <= 15:
                             return (
                                 False,
@@ -196,10 +190,6 @@ def get_entry_timing():
 
 def analyze_market(symbol):
     try:
-        market_status, reason = is_market_open()
-        if not market_status:
-            return
-
         data = yf.download(
             tickers=symbol, period="2d", interval="5m", progress=False
         )
@@ -356,57 +346,26 @@ def analyze_market(symbol):
 
 
 def main():
-    global today_loss_counter, last_trade_date
-    print(
-        "Quotex Ultimate Sniper Bot Started with Updated Telegram Credentials..."
-    )
+    print("GitHub Actions Single-Run Scan Started...")
 
-    while True:
-        tz = pytz.timezone("Asia/Dhaka")
-        now = datetime.now(tz)
+    # Market & Off-Time Check
+    market_status, reason = is_market_open()
+    if not market_status:
+        print(f"Skipped: {reason}")
+        return
 
-        current_minute = now.minute
-        current_second = now.second
+    # News Check
+    news_status, news_reason = check_forex_news()
+    if not news_status:
+        print(f"Skipped: {news_reason}")
+        return
 
-        # Candlestick-close sync: Scans between 56th and 59th second of 4th, 9th, 14th... minute
-        is_near_candle_close = (current_minute % 5 == 4) and (
-            current_second >= 56
-        )
+    print("Scanning 19 Pairs...")
+    for symbol in SYMBOLS:
+        analyze_market(symbol)
+        time.sleep(0.3)
 
-        if is_near_candle_close:
-            if now.date() != last_trade_date:
-                today_loss_counter = 0
-                last_trade_date = now.date()
-
-            if today_loss_counter >= DAILY_LOSS_LIMIT:
-                print(
-                    f"[{datetime.now()}] Daily Stop-Loss Limit Reached ({DAILY_LOSS_LIMIT} losses). Bot paused."
-                )
-                time.sleep(3600)
-                continue
-
-            market_status, reason = is_market_open()
-            if not market_status:
-                print(f"[{datetime.now()}] Bot Paused: {reason}.")
-                time.sleep(60)
-                continue
-
-            news_status, news_reason = check_forex_news()
-            if not news_status:
-                print(f"[{datetime.now()}] Bot Paused: {news_reason}.")
-                time.sleep(60)
-                continue
-
-            print(
-                f"[{datetime.now()}] Scanning 19 Pairs at Candle Close (5-Min Sync)..."
-            )
-            for symbol in SYMBOLS:
-                analyze_market(symbol)
-                time.sleep(0.5)
-
-            time.sleep(10)
-        else:
-            time.sleep(1)
+    print("Scan completed successfully and job exited.")
 
 
 if __name__ == "__main__":
