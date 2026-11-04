@@ -30,7 +30,6 @@ SYMBOLS = [
     "AUDCAD=X",
     "AUDCHF=X",
     "NZDJPY=X",
-    "GC=F",  # Gold (XAUUSD)
 ]
 
 
