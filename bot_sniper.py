@@ -1,5 +1,5 @@
-from datetime import datetime
 import time
+from datetime import datetime
 import pandas as pd
 import pytz
 import requests
@@ -11,7 +11,7 @@ import yfinance as yf
 TELEGRAM_TOKEN = "8980085069:AAENlLOKnpEpAQjuXfzood8bR7ghZ4_7kIY"
 CHAT_ID = "6327673739"
 
-# Your Original 19 Currency Pairs (Quotex Available Pairs)
+# Updated Currency Pairs (NZD/JPY Removed - Total 18 Pairs)
 SYMBOLS = [
     "EURUSD=X",
     "GBPUSD=X",
@@ -31,7 +31,6 @@ SYMBOLS = [
     "GBPCHF=X",
     "AUDCAD=X",
     "AUDCHF=X",
-    "NZDJPY=X",
 ]
 
 
@@ -90,7 +89,7 @@ def check_forex_news():
 
 
 def calculate_indicators(df):
-    """Calculates EMA, RSI, MACD, Bollinger Bands, Stochastic, and Volume MA"""
+    """Calculates EMA, RSI, MACD, Bollinger Bands, and Stochastic"""
     df["EMA50"] = df["Close"].ewm(span=50, adjust=False).mean()
 
     delta = df["Close"].diff()
@@ -115,11 +114,6 @@ def calculate_indicators(df):
     high_max = df["High"].rolling(window=14).max()
     df["Stoch_K"] = ((df["Close"] - low_min) / (high_max - low_min)) * 100
     df["Stoch_D"] = df["Stoch_K"].rolling(window=3).mean()
-
-    if "Volume" in df.columns:
-        df["Vol_MA"] = df["Volume"].rolling(window=10).mean()
-    else:
-        df["Vol_MA"] = 0
 
     return df
 
@@ -148,32 +142,8 @@ def check_m15_trend(symbol):
     return "NEUTRAL"
 
 
-def check_h1_trend(symbol):
-    """H1 (1-Hour) Trend Confirmation Filter"""
-    try:
-        data_h1 = yf.download(
-            tickers=symbol, period="5d", interval="60m", progress=False
-        )
-        if len(data_h1) < 50:
-            return "NEUTRAL"
-
-        if isinstance(data_h1.columns, pd.MultiIndex):
-            data_h1.columns = data_h1.columns.get_level_values(0)
-
-        data_h1["EMA50"] = data_h1["Close"].ewm(span=50, adjust=False).mean()
-        curr_h1 = data_h1.iloc[-1]
-
-        if curr_h1["Close"] > curr_h1["EMA50"]:
-            return "BULLISH"
-        elif curr_h1["Close"] < curr_h1["EMA50"]:
-            return "BEARISH"
-    except Exception:
-        pass
-    return "NEUTRAL"
-
-
 def get_entry_timing():
-    """Exact Next 5-Min Candle Entry Time"""
+    """Exact Next 5-Min Candle Entry Time (BD Time)"""
     tz = pytz.timezone("Asia/Dhaka")
     now = datetime.now(tz)
     minute = now.minute
@@ -220,40 +190,29 @@ def analyze_market(symbol):
         body = abs(close - open_price)
         total_range = high - low
 
-        # Doji Filter (Body < 25%)
-        if total_range == 0 or (body / total_range) < 0.25:
+        # Doji Filter (Body < 20%)
+        if total_range == 0 or (body / total_range) < 0.20:
             return
 
         # Exhaustion Filter
         avg_body = abs(df["Close"] - df["Open"]).tail(10).mean()
-        if body > (avg_body * 2.8):
+        if body > (avg_body * 3.2):
             return
-
-        # Pivot Points S&R
-        pp = (curr["High"] + curr["Low"] + curr["Close"]) / 3
-        r1 = (2 * pp) - curr["Low"]
-        s1 = (2 * pp) - curr["High"]
 
         pair_name = symbol.replace("=X", "").replace("GC=F", "GOLD (XAUUSD)")
         m15_trend = check_m15_trend(symbol)
-        h1_trend = check_h1_trend(symbol)
         entry_time = get_entry_timing()
-
-        curr_vol = curr.get("Volume", 0)
-        vol_ma = curr.get("Vol_MA", 0)
-        has_good_volume = curr_vol >= (vol_ma * 0.9) if vol_ma > 0 else True
 
         # 🟢 CALL / BUY SIGNAL
         is_bullish_engulfing = (
             (prev["Close"] < prev["Open"])
             and (close > open_price)
             and (close > prev["Open"])
-            and (open_price < prev["Close"])
         )
         is_bullish_pinbar = (
             (close > open_price)
-            and ((open_price - low) > 2.0 * body)
-            and ((high - close) < body)
+            and ((open_price - low) > 1.8 * body)
+            and ((high - close) <= body)
         )
 
         if (
@@ -261,48 +220,37 @@ def analyze_market(symbol):
             and close > ema
             and macd > macd_sig
         ):
-            if close >= r1:
-                return
-
             if (
-                h1_trend == "BULLISH"
-                and m15_trend == "BULLISH"
-                and 42 < rsi < 65
-                and low <= bb_lower * 1.002
+                m15_trend in ["BULLISH", "NEUTRAL"]
+                and 40 < rsi < 70
+                and low <= bb_lower * 1.004
                 and stoch_k > stoch_d
-                and stoch_k < 30
-                and macd > 0
-                and has_good_volume
+                and stoch_k < 45
             ):
-                quality = "🎯 SNIPER ULTRA HIGH CONFIDENCE (Direct Win)"
-                mtg = "❌ Not Needed (Strictly Direct Entry)"
-            else:
-                return
 
-            msg = (
-                f"<b>🟢 SNIPER BUY / UP SIGNAL 🟢</b>\n\n"
-                f"<b>Pair:</b> {pair_name}\n"
-                f"<b>Timeframe:</b> M5 (Trend: M15 & H1)\n"
-                f"<b>Signal Quality:</b> {quality}\n"
-                f"<b>MTG Status:</b> {mtg}\n\n"
-                f"📊 <b>Filters:</b> EMA 50 Above | RSI: {rsi:.1f} | Stoch: {stoch_k:.1f} | H1/M15: BULLISH\n"
-                f"⏰ <b>Exact Entry Time:</b> <code>{entry_time}</code> (00:00 Sec Entry)\n\n"
-                f"⚠️ <i>Checked: Red Folder News & Bollinger/Stochastic!</i>"
-            )
-            send_telegram_msg(msg)
-            return
+                msg = (
+                    f"<b>🟢 SNIPER BUY / UP SIGNAL 🟢</b>\n\n"
+                    f"<b>Pair:</b> {pair_name}\n"
+                    f"<b>Timeframe:</b> M5 (Trend: M15 Neutral/Up)\n"
+                    f"<b>Signal Quality:</b> 🎯 HIGH CONFIDENCE (Direct Win)\n"
+                    f"<b>MTG Status:</b> ❌ Not Needed (Direct Entry)\n\n"
+                    f"📊 <b>Metrics:</b> RSI: {rsi:.1f} | Stoch: {stoch_k:.1f} | EMA50: Bullish Trend\n"
+                    f"⏰ <b>Exact Entry Time:</b> <code>{entry_time}</code> (00:00 Sec Entry)\n\n"
+                    f"⚠️ <i>News & Market Filter Checked!</i>"
+                )
+                send_telegram_msg(msg)
+                return
 
         # 🔴 PUT / SELL SIGNAL
         is_bearish_engulfing = (
             (prev["Close"] > prev["Open"])
             and (close < open_price)
             and (close < prev["Close"])
-            and (open_price > prev["Open"])
         )
         is_bearish_pinbar = (
             (close < open_price)
-            and ((high - open_price) > 2.0 * body)
-            and ((close - low) < body)
+            and ((high - open_price) > 1.8 * body)
+            and ((close - low) <= body)
         )
 
         if (
@@ -310,62 +258,49 @@ def analyze_market(symbol):
             and close < ema
             and macd < macd_sig
         ):
-            if close <= s1:
-                return
-
             if (
-                h1_trend == "BEARISH"
-                and m15_trend == "BEARISH"
-                and 35 < rsi < 58
-                and high >= bb_upper * 0.998
+                m15_trend in ["BEARISH", "NEUTRAL"]
+                and 30 < rsi < 60
+                and high >= bb_upper * 0.996
                 and stoch_k < stoch_d
-                and stoch_k > 70
-                and macd < 0
-                and has_good_volume
+                and stoch_k > 55
             ):
-                quality = "🎯 SNIPER ULTRA HIGH CONFIDENCE (Direct Win)"
-                mtg = "❌ Not Needed (Strictly Direct Entry)"
-            else:
-                return
 
-            msg = (
-                f"<b>🔴 SNIPER SELL / DOWN SIGNAL 🔴</b>\n\n"
-                f"<b>Pair:</b> {pair_name}\n"
-                f"<b>Timeframe:</b> M5 (Trend: M15 & H1)\n"
-                f"<b>Signal Quality:</b> {quality}\n"
-                f"<b>MTG Status:</b> {mtg}\n\n"
-                f"📊 <b>Filters:</b> EMA 50 Below | RSI: {rsi:.1f} | Stoch: {stoch_k:.1f} | H1/M15: BEARISH\n"
-                f"⏰ <b>Exact Entry Time:</b> <code>{entry_time}</code> (00:00 Sec Entry)\n\n"
-                f"⚠️ <i>Checked: Red Folder News & Bollinger/Stochastic!</i>"
-            )
-            send_telegram_msg(msg)
-            return
+                msg = (
+                    f"<b>🔴 SNIPER SELL / DOWN SIGNAL 🔴</b>\n\n"
+                    f"<b>Pair:</b> {pair_name}\n"
+                    f"<b>Timeframe:</b> M5 (Trend: M15 Neutral/Down)\n"
+                    f"<b>Signal Quality:</b> 🎯 HIGH CONFIDENCE (Direct Win)\n"
+                    f"<b>MTG Status:</b> ❌ Not Needed (Direct Entry)\n\n"
+                    f"📊 <b>Metrics:</b> RSI: {rsi:.1f} | Stoch: {stoch_k:.1f} | EMA50: Bearish Trend\n"
+                    f"⏰ <b>Exact Entry Time:</b> <code>{entry_time}</code> (00:00 Sec Entry)\n\n"
+                    f"⚠️ <i>News & Market Filter Checked!</i>"
+                )
+                send_telegram_msg(msg)
+                return
 
     except Exception as e:
         print(f"Error processing {symbol}: {e}")
 
 
 def main():
-    print("GitHub Actions Single-Run Scan Started...")
+    print("Scanning Started (18 Pairs)...")
 
-    # Market & Off-Time Check
     market_status, reason = is_market_open()
     if not market_status:
         print(f"Skipped: {reason}")
         return
 
-    # News Check
     news_status, news_reason = check_forex_news()
     if not news_status:
         print(f"Skipped: {news_reason}")
         return
 
-    print("Scanning 19 Pairs...")
     for symbol in SYMBOLS:
         analyze_market(symbol)
         time.sleep(0.3)
 
-    print("Scan completed successfully and job exited.")
+    print("Scan finished successfully.")
 
 
 if __name__ == "__main__":
