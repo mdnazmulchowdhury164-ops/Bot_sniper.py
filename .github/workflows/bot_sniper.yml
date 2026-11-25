@@ -1,29 +1,28 @@
-name: Quotex Sniper Bot
+name: Forex Signal Bot
 
 on:
   schedule:
-    - cron: '*/5 * * * *' # প্রতি ৫ মিনিট পর পর অটোমেটিক রান হবে
-  workflow_dispatch: # গিটহাব পেজ থেকে ম্যানুয়ালি রান করার বাটন
+    # Runs every 5 minutes from 07:30 to 15:30 UTC (1:30 PM to 9:30 PM BD Time)
+    - cron: "*/5 7-15 * * 1-5"
+  workflow_dispatch:
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Repository
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.10'
+          python-version: "3.11"
 
-      - name: Install Dependencies
-        run: |
-          pip install pandas requests pytz yfinance
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
-      - name: Run Sniper Bot Script
+      - name: Run signal bot
         env:
           TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
           CHAT_ID: ${{ secrets.CHAT_ID }}
-        run: |
-          python bot_sniper.py
+        run: python bot.py
